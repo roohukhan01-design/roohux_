@@ -25,6 +25,15 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
+import androidx.compose.animation.core.*
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.Box
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.clickable
@@ -52,8 +61,8 @@ import androidx.media3.ui.PlayerView
 import org.json.JSONArray
 import java.net.URLDecoder
 
-private val ink = Color(0xFF080A13)
-private val panel = Color(0xFF151A2A)
+private val ink = Color(0xFF070916)
+private val panel = Color(0xFF141A2F)
 private val violet = Color(0xFFAC91FF)
 private val cyan = Color(0xFF68E3E0)
 
@@ -165,6 +174,7 @@ private fun RoohuXScreen(activity: MainActivity) {
     var browserVisible by remember { mutableStateOf(true) }
     var browserLoading by remember { mutableStateOf(false) }
     var browserProgress by remember { mutableIntStateOf(0) }
+    var motionEnabled by remember { mutableStateOf(prefs.getBoolean("motion", true)) }
     var browserError by remember { mutableStateOf("") }
     var browserTabIndex by remember { mutableIntStateOf(0) }
     val browserTabs = remember { mutableStateListOf("https://www.google.com") }
@@ -251,9 +261,9 @@ private fun RoohuXScreen(activity: MainActivity) {
 
     MaterialTheme(colorScheme = darkColorScheme(primary = violet, secondary = cyan, background = ink,
         surface = panel, onSurface = Color.White, onBackground = Color.White)) {
-        Scaffold(containerColor = ink, bottomBar = {
+        Scaffold(containerColor = Color.Transparent, bottomBar = {
             if (tab != 2 || !browserExpanded) {
-            NavigationBar(containerColor = panel) {
+            NavigationBar(containerColor = Color(0xF0101730)) {
                 listOf("Explore", "Player", "Browser", "Saved", "Downloads").forEachIndexed { index, name ->
                     NavigationBarItem(
                         selected = tab == index, onClick = { tab = index },
@@ -265,12 +275,20 @@ private fun RoohuXScreen(activity: MainActivity) {
             }
             }
         }) { padding ->
-            Column(Modifier.fillMaxSize().background(ink).padding(padding).padding(horizontal = 16.dp)) {
+            Box(Modifier.fillMaxSize().background(ink)) {
+                if (tab != 2 || !browserExpanded) CosmicBackground(motionEnabled)
+            Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = if (tab == 2 && browserExpanded) 5.dp else 16.dp)) {
                 if (tab != 2 || !browserExpanded) {
                 Spacer(Modifier.height(12.dp))
-                Text("ROOHUX", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Black,
-                    color = violet)
-                Text("Your media. Your universe.", color = Color(0xFFABB4C8))
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("ROOHU", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Black, color = Color.White)
+                    Text("X", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Black, color = cyan)
+                    Spacer(Modifier.weight(1f))
+                    TextButton(onClick = { motionEnabled = !motionEnabled; prefs.edit().putBoolean("motion", motionEnabled).apply() }) {
+                        Text(if (motionEnabled) "✧ Motion" else "◇ Still", color = violet)
+                    }
+                }
+                Text("YOUR MEDIA  /  YOUR UNIVERSE", letterSpacing = 2.sp, color = Color(0xFF9BA9C8), style = MaterialTheme.typography.labelSmall)
                 Spacer(Modifier.height(14.dp))
                 }
                 if (status.isNotBlank() && (tab != 2 || !browserExpanded)) {
@@ -279,10 +297,12 @@ private fun RoohuXScreen(activity: MainActivity) {
                 }
                 when (tab) {
                     0 -> {
+                        HolographicHero(motionEnabled)
+                        Spacer(Modifier.height(12.dp))
                         Column(Modifier.fillMaxWidth().background(
-                            Brush.linearGradient(listOf(Color(0xFF322456), Color(0xFF122D3A))),
+                            Brush.linearGradient(listOf(Color(0xDD222B51), Color(0xDD132E3C))),
                             RoundedCornerShape(24.dp)).padding(20.dp)) {
-                            Text("Discover & play", style = MaterialTheme.typography.headlineSmall,
+                            Text("OPEN A NEW WORLD", style = MaterialTheme.typography.headlineSmall,
                                 fontWeight = FontWeight.Bold)
                             Spacer(Modifier.height(6.dp))
                             Text("Paste a website, cloud share link, or direct media URL.",
@@ -441,6 +461,7 @@ private fun RoohuXScreen(activity: MainActivity) {
                     }
                 }
             }
+            }
         }
     }
 }
@@ -537,4 +558,88 @@ private fun BrowserView(
             onCreated(this)
         }
     }, modifier = modifier)
+}
+
+@Composable
+private fun CosmicBackground(enabled: Boolean) {
+    val transition = rememberInfiniteTransition(label = "ambient")
+    val phase by transition.animateFloat(
+        initialValue = 0f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(16000, easing = LinearEasing), RepeatMode.Restart),
+        label = "drift"
+    )
+    Canvas(Modifier.fillMaxSize()) {
+        val t = if (enabled) phase else 0.3f
+        drawRect(brush = Brush.verticalGradient(listOf(Color(0xFF080A19), Color(0xFF101530), Color(0xFF070C18))))
+        val w = size.width
+        val h = size.height
+        for (i in 0..30) {
+            val x = ((i * 137.3f + t * (8 + i % 7)) % w)
+            val y = ((i * 213.7f + t * 12f) % h)
+            drawCircle(
+                color = if (i % 3 == 0) Color(0xFF82E6FA) else Color(0xFFAD9AF6),
+                radius = if (i % 5 == 0) 2.3f else 1.1f,
+                center = Offset(x, y), alpha = 0.24f
+            )
+        }
+        drawCircle(
+            brush = Brush.radialGradient(
+                listOf(Color(0x664C3D9D), Color.Transparent),
+                center = Offset(w * (0.75f + t * 0.03f), h * 0.19f), radius = w * 0.85f
+            ),
+            radius = w * 0.85f,
+            center = Offset(w * (0.75f + t * 0.03f), h * 0.19f)
+        )
+    }
+}
+
+@Composable
+private fun HolographicHero(enabled: Boolean) {
+    val transition = rememberInfiniteTransition(label = "hologram")
+    val float by transition.animateFloat(
+        initialValue = -1f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(3800, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "float"
+    )
+    val tilt = if (enabled) float else 0f
+    Box(
+        Modifier.fillMaxWidth().height(176.dp)
+            .graphicsLayer {
+                rotationY = tilt * 3f
+                rotationX = tilt * -2f
+                translationY = tilt * 3f
+                cameraDistance = 14 * density
+            }
+            .clip(RoundedCornerShape(28.dp))
+            .background(Brush.linearGradient(listOf(Color(0xFF24215B), Color(0xFF123B4C), Color(0xFF151D38))))
+    ) {
+        Canvas(Modifier.fillMaxSize()) {
+            val cx = size.width * 0.75f
+            val cy = size.height * 0.49f
+            for (i in 0..5) {
+                drawCircle(
+                    color = if (i % 2 == 0) Color(0xFF6DEBE7) else Color(0xFFB39AFF),
+                    radius = size.height * (0.14f + i * 0.083f),
+                    center = Offset(cx, cy), style = Stroke(width = if (i == 0) 3f else 1.4f),
+                    alpha = 0.63f - i * 0.07f
+                )
+            }
+            drawCircle(
+                brush = Brush.radialGradient(listOf(Color(0xFFA58EFF), Color(0xFF30336F), Color.Transparent),
+                    center = Offset(cx, cy), radius = size.height * 0.35f),
+                radius = size.height * 0.35f, center = Offset(cx, cy)
+            )
+            drawLine(Color(0x6674F7EA), Offset(0f, size.height * 0.83f),
+                Offset(size.width, size.height * 0.83f), strokeWidth = 2f)
+        }
+        Column(Modifier.align(Alignment.CenterStart).padding(start = 23.dp)) {
+            Text("ROOHUX  /  05", style = MaterialTheme.typography.labelMedium, color = cyan, letterSpacing = 2.sp)
+            Spacer(Modifier.height(12.dp))
+            Text("EXPLORE\nBEYOND", style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Black, color = Color.White, lineHeight = 34.sp)
+            Spacer(Modifier.height(8.dp))
+            Text("CINEMATIC MEDIA SPACE", style = MaterialTheme.typography.labelSmall,
+                color = Color(0xFFC9C7FF), letterSpacing = 1.sp)
+        }
+    }
 }
