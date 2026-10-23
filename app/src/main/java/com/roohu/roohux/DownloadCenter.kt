@@ -74,7 +74,7 @@ internal fun DownloadCenter(onOpen: (String) -> Unit) {
     }
     Column(Modifier.fillMaxSize()) {
         Text("Download center", style = MaterialTheme.typography.headlineSmall)
-        Text("Progress, completed files and retry", color = MaterialTheme.colorScheme.secondary)
+        Text("Live progress and readable failure reasons", color = MaterialTheme.colorScheme.secondary)
         Spacer(Modifier.height(12.dp))
         OutlinedButton(onClick = { entries = DownloadHistory.read(context) }) { Text("Refresh") }
         if (entries.isEmpty()) Text("No downloads yet. Open a video in Browser to find available files.")
@@ -90,7 +90,17 @@ internal fun DownloadCenter(onOpen: (String) -> Unit) {
                             DownloadManager.STATUS_RUNNING -> "Downloading"
                             DownloadManager.STATUS_PENDING -> "Waiting"
                             DownloadManager.STATUS_PAUSED -> "Paused by Android"
-                            DownloadManager.STATUS_FAILED -> "Failed (code ${state.reason})"
+                            DownloadManager.STATUS_FAILED -> when (state.reason) {
+                                DownloadManager.ERROR_CANNOT_RESUME -> "Failed: server cannot resume download"
+                                DownloadManager.ERROR_DEVICE_NOT_FOUND -> "Failed: storage unavailable"
+                                DownloadManager.ERROR_FILE_ALREADY_EXISTS -> "Failed: file already exists"
+                                DownloadManager.ERROR_FILE_ERROR -> "Failed: cannot write file"
+                                DownloadManager.ERROR_HTTP_DATA_ERROR -> "Failed: network interrupted"
+                                DownloadManager.ERROR_INSUFFICIENT_SPACE -> "Failed: not enough storage"
+                                DownloadManager.ERROR_TOO_MANY_REDIRECTS -> "Failed: too many redirects"
+                                DownloadManager.ERROR_UNHANDLED_HTTP_CODE -> "Failed: website rejected request"
+                                else -> if (state.reason in 400..599) "Failed: server HTTP ${state.reason}" else "Failed (code ${state.reason})"
+                            }
                             else -> "Unknown / removed"
                         }
                         Text("$label • ${state?.done?.div(1024L) ?: 0} KB")
