@@ -4,6 +4,7 @@ import android.app.DownloadManager
 import android.content.Context
 import android.database.Cursor
 import android.net.Uri
+import android.content.Intent
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -100,6 +101,21 @@ internal fun DownloadCenter(onOpen: (String) -> Unit) {
                             LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                         }
                         Row {
+                            if (state?.status == DownloadManager.STATUS_SUCCESSFUL) {
+                                TextButton(onClick = {
+                                    try {
+                                        val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+                                        val uri = dm.getUriForDownloadedFile(item.id)
+                                        if (uri != null) {
+                                            val intent = Intent(Intent.ACTION_VIEW).apply {
+                                                setDataAndType(uri, context.contentResolver.getType(uri) ?: "*/*")
+                                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                                            }
+                                            context.startActivity(intent)
+                                        }
+                                    } catch (_: Exception) {}
+                                }) { Text("Open file") }
+                            }
                             TextButton(onClick = { onOpen(item.url) }) { Text("Source") }
                             TextButton(onClick = {
                                 try { (context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager).remove(item.id) } catch (_: Exception) {}
