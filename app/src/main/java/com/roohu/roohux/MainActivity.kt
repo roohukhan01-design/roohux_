@@ -9,6 +9,7 @@ import android.os.Environment
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.CookieManager
+import android.webkit.ConsoleMessage
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
@@ -147,6 +148,9 @@ private fun RoohuXScreen(activity: MainActivity) {
     val found = remember { mutableStateListOf<FoundMedia>() }
     var browserPage by remember { mutableStateOf("") }
     var playerError by remember { mutableStateOf("") }
+    var showDownloadChoices by remember { mutableStateOf(false) }
+    var autoPrompt by remember { mutableStateOf(true) }
+    var promptSeenForPage by remember { mutableStateOf(false) }
     val player = remember {
         ExoPlayer.Builder(context).build()
     }
@@ -167,11 +171,16 @@ private fun RoohuXScreen(activity: MainActivity) {
         val valid = normalizedUrl(url) ?: return
         if (!mediaType(valid) || found.any { it.url == valid } || found.size >= 24) return
         found.add(FoundMedia(valid, label.ifBlank { "Media source" }))
+        if (autoPrompt && !promptSeenForPage) {
+            promptSeenForPage = true
+            showDownloadChoices = true
+        }
     }
     fun openBrowser(url: String) {
         browserTarget = url
         browserInput = url
         found.clear()
+        promptSeenForPage = false
         browserPage = url
         tab = 2
     }
@@ -195,6 +204,30 @@ private fun RoohuXScreen(activity: MainActivity) {
         if (!activity.closeVideoFullscreen()) {
             if (tab == 2 && webView?.canGoBack() == true) webView?.goBack() else tab = 0
         }
+    }
+
+    if (showDownloadChoices && found.isNotEmpty()) {
+        AlertDialog(
+            onDismissRequest = { showDownloadChoices = false },
+            title = { Text("Video detected") },
+            text = {
+                Column {
+                    Text("Choose an available source. Quality is shown only when the website provides it.")
+                    Spacer(Modifier.height(10.dp))
+                    found.take(10).forEach { item ->
+                        val label = item.label.ifBlank { Uri.parse(item.url).lastPathSegment ?: "Video file" }
+                        TextButton(onClick = {
+                            status = requestDownload(context, item.url)
+                            showDownloadChoices = false
+                        }, modifier = Modifier.fillMaxWidth()) {
+                            Text("↓  " + label.take(70), maxLines = 2)
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showDownloadChoices = false }) { Text("Close") } },
+            dismissButton = { TextButton(onClick = { autoPrompt = false; showDownloadChoices = false }) { Text("Disable auto popup") } }
+        )
     }
 
     MaterialTheme(colorScheme = darkColorScheme(primary = violet, secondary = cyan, background = ink,
@@ -315,6 +348,12 @@ private fun RoohuXScreen(activity: MainActivity) {
                                 }
                             }) { Text("Find media") }
                         }
+                        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                            Text("Auto download popup", style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.weight(1f))
+                            Switch(checked = autoPrompt, onCheckedChange = { autoPrompt = it })
+                            if (found.isNotEmpty()) TextButton(onClick = { showDownloadChoices = true }) { Text("Downloads") }
+                        }
                         if (found.isNotEmpty()) {
                             Spacer(Modifier.height(8.dp))
                             Text("Detected downloadable media (${found.size})", color = cyan,
@@ -389,6 +428,17 @@ private fun BrowserView(
             settings.setSupportMultipleWindows(false)
             CookieManager.getInstance().setAcceptCookie(true)
             webChromeClient = object : WebChromeClient() {
+                override fun onConsoleMessage(message: ConsoleMessage?): Boolean {
+                    val raw = message?.message() ?: return false
+                    if (raw.startsWith("ROOHUX_MEDIA:")) {
+                        try {
+                            val entry = org.json.JSONObject(raw.removePrefix("ROOHUX_MEDIA:"))
+                            onMedia(entry.optString("url"), entry.optString("quality"))
+                        } catch (_: Exception) {}
+                        return true
+                    }
+                    return super.onConsoleMessage(message)
+                }
                 override fun onShowCustomView(view: View?, callback: CustomViewCallback?) {
                     if (view != null && callback != null) activity.showVideoFullscreen(view, callback)
                 }
@@ -398,6 +448,25 @@ private fun BrowserView(
                 override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean = false
                 override fun onPageFinished(view: WebView?, url: String?) {
                     if (url != null) onPage(url)
+                    view?.evaluateJavascript("""
+                        (function(){
+                          if(window.__roohuxDetector) return;
+                          window.__roohuxDetector=true;
+                          function scan(){
+                            document.querySelectorAll("video,video source").forEach(function(el){
+                              var v=el.currentSrc||el.src||"";
+                              if(!/^https?:\\/\\//i.test(v))return;
+                              var q=el.getAttribute("label")||el.getAttribute("res")||el.getAttribute("size")||
+                                (el.videoHeight ? el.videoHeight+"p" : "")||"Video file";
+                              console.log("ROOHUX_MEDIA:"+JSON.stringify({url:v,quality:q}));
+                            });
+                          }
+                          document.addEventListener("play",scan,true);
+                          document.addEventListener("loadedmetadata",scan,true);
+                          scan();
+                          new MutationObserver(function(){scan()}).observe(document.documentElement,{childList:true,subtree:true});
+                        })();
+                    """.trimIndent(), null)
                 }
                 override fun onLoadResource(view: WebView?, url: String?) {
                     if (url != null && mediaType(url)) onMedia(url, Uri.parse(url).lastPathSegment ?: "Media file")
