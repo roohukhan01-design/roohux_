@@ -191,7 +191,7 @@ private fun RoohuXScreen(activity: MainActivity) {
         if (mediaType(valid)) play(valid) else openBrowser(valid)
     }
 
-    BackHandler(tab != 0 || activity.closeVideoFullscreen().let { false }) {
+    BackHandler(tab != 0) {
         if (!activity.closeVideoFullscreen()) {
             if (tab == 2 && webView?.canGoBack() == true) webView?.goBack() else tab = 0
         }
