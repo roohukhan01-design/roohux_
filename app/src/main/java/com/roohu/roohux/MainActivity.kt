@@ -20,6 +20,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -113,8 +114,9 @@ private fun requestDownload(context: Context, url: String): String {
             .setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, filename)
         CookieManager.getInstance().getCookie(url)?.let { request.addRequestHeader("Cookie", it) }
         request.addRequestHeader("User-Agent", "Mozilla/5.0 (Android) RoohuX/0.2")
-        (context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager).enqueue(request)
-        "Download queued in RoohuX app storage"
+        val id = (context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager).enqueue(request)
+        DownloadHistory.add(context, id, filename, url)
+        "Download started — see Downloads tab"
     } catch (e: Exception) { "Download failed: ${e.localizedMessage ?: "unsupported link"}" }
 }
 
@@ -153,6 +155,10 @@ private fun RoohuXScreen(activity: MainActivity) {
     var autoPrompt by remember { mutableStateOf(true) }
     var promptSeenForPage by remember { mutableStateOf(false) }
     var browserExpanded by remember { mutableStateOf(true) }
+    var desktopMode by remember { mutableStateOf(false) }
+    var browserVisible by remember { mutableStateOf(true) }
+    val bookmarks = remember { mutableStateListOf<String>().apply { try { val a = JSONArray(prefs.getString("bookmarks", "[]")); for (i in 0 until a.length()) add(a.getString(i)) } catch (_: Exception) {} } }
+    fun bookmark(url: String) { if (!bookmarks.contains(url)) bookmarks.add(0, url); try { prefs.edit().putString("bookmarks", JSONArray(bookmarks.toList()).toString()).apply() } catch (_: Exception) {} }
     val player = remember {
         ExoPlayer.Builder(context).build()
     }
@@ -173,10 +179,7 @@ private fun RoohuXScreen(activity: MainActivity) {
         val valid = normalizedUrl(url) ?: return
         if (!mediaType(valid) || found.any { it.url == valid } || found.size >= 24) return
         found.add(FoundMedia(valid, label.ifBlank { "Media source" }))
-        if (autoPrompt && !promptSeenForPage && tab == 2) {
-            promptSeenForPage = true
-            showDownloadChoices = true
-        }
+        // Do not interrupt playback. A download chip appears in the browser instead.
     }
     fun openBrowser(url: String) {
         browserTarget = url
@@ -237,10 +240,10 @@ private fun RoohuXScreen(activity: MainActivity) {
         Scaffold(containerColor = ink, bottomBar = {
             if (tab != 2 || !browserExpanded) {
             NavigationBar(containerColor = panel) {
-                listOf("Explore", "Player", "Browser", "Saved").forEachIndexed { index, name ->
+                listOf("Explore", "Player", "Browser", "Saved", "Downloads").forEachIndexed { index, name ->
                     NavigationBarItem(
                         selected = tab == index, onClick = { tab = index },
-                        icon = { Text(listOf("✦", "▶", "◉", "★")[index]) },
+                        icon = { Text(listOf("✦", "▶", "◉", "★", "↓")[index]) },
                         label = { Text(name) },
                         colors = NavigationBarItemDefaults.colors(selectedIconColor = violet, selectedTextColor = violet)
                     )
@@ -350,8 +353,9 @@ private fun RoohuXScreen(activity: MainActivity) {
                                 }
                             }
                             Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                                Text("Auto video suggestions", modifier = Modifier.weight(1f))
-                                Switch(checked = autoPrompt, onCheckedChange = { autoPrompt = it })
+                                TextButton(onClick = { webView?.url?.let { bookmark(it) }; status = "Bookmarked" }) { Text("★ Save") }
+                                TextButton(onClick = { desktopMode = !desktopMode; webView?.settings?.userAgentString = if (desktopMode) "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" else null; webView?.reload() }) { Text(if (desktopMode) "Mobile" else "Desktop") }
+                                TextButton(onClick = { webView?.url?.let { save(it) } }) { Text("Save link") }
                             }
                         }
                         if (found.isNotEmpty()) {
@@ -375,7 +379,11 @@ private fun RoohuXScreen(activity: MainActivity) {
                     3 -> {
                         Text("Saved links", style = MaterialTheme.typography.titleLarge)
                         Spacer(Modifier.height(10.dp))
-                        if (saved.isEmpty()) Text("No links saved yet", color = Color.LightGray)
+                        if (saved.isEmpty() && bookmarks.isEmpty()) Text("No links saved yet", color = Color.LightGray)
+                        if (bookmarks.isNotEmpty()) {
+                            Text("Browser bookmarks", color = cyan)
+                            bookmarks.take(8).forEach { url -> TextButton(onClick = { openBrowser(url) }) { Text(url, maxLines = 1) } }
+                        }
                         LazyColumn {
                             items(saved.toList()) { url ->
                                 ElevatedCard(modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
@@ -390,6 +398,9 @@ private fun RoohuXScreen(activity: MainActivity) {
                                 }
                             }
                         }
+                    }
+                    4 -> {
+                        DownloadCenter(onOpen = { url -> openInput(url) })
                     }
                 }
             }
@@ -417,6 +428,9 @@ private fun BrowserView(
             settings.loadWithOverviewMode = true
             settings.builtInZoomControls = true
             settings.displayZoomControls = false
+            setDownloadListener { url, userAgent, contentDisposition, mimeType, contentLength ->
+                if (url.startsWith("https://") || url.startsWith("http://")) onMedia(url, "Website download")
+            }
             CookieManager.getInstance().setAcceptCookie(true)
             webChromeClient = object : WebChromeClient() {
                 override fun onConsoleMessage(message: ConsoleMessage?): Boolean {
@@ -446,7 +460,7 @@ private fun BrowserView(
                           function scan(){
                             document.querySelectorAll("video,video source").forEach(function(el){
                               var v=el.currentSrc||el.src||"";
-                              if(!/^https?:\\/\\//i.test(v))return;
+                              if(v.indexOf("https://")!==0 && v.indexOf("http://")!==0)return;
                               var q=el.getAttribute("label")||el.getAttribute("res")||el.getAttribute("size")||
                                 (el.videoHeight ? el.videoHeight+"p" : "")||"Video file";
                               console.log("ROOHUX_MEDIA:"+JSON.stringify({url:v,quality:q}));
