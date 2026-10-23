@@ -11,6 +11,9 @@ import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.ConsoleMessage
 import android.webkit.WebChromeClient
+import android.webkit.URLUtil
+import android.content.Intent
+import android.content.ActivityNotFoundException
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -157,6 +160,8 @@ private fun RoohuXScreen(activity: MainActivity) {
     var browserExpanded by remember { mutableStateOf(true) }
     var desktopMode by remember { mutableStateOf(false) }
     var browserVisible by remember { mutableStateOf(true) }
+    var browserLoading by remember { mutableStateOf(false) }
+    var browserProgress by remember { mutableIntStateOf(0) }
     val bookmarks = remember { mutableStateListOf<String>().apply { try { val a = JSONArray(prefs.getString("bookmarks", "[]")); for (i in 0 until a.length()) add(a.getString(i)) } catch (_: Exception) {} } }
     fun bookmark(url: String) { if (!bookmarks.contains(url)) bookmarks.add(0, url); try { prefs.edit().putString("bookmarks", JSONArray(bookmarks.toList()).toString()).apply() } catch (_: Exception) {} }
     val player = remember {
@@ -345,8 +350,8 @@ private fun RoohuXScreen(activity: MainActivity) {
                         }
                         if (!browserExpanded) {
                             Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                                TextButton(onClick = { webView?.goBack() }) { Text("Back") }
-                                TextButton(onClick = { webView?.goForward() }) { Text("Next") }
+                                TextButton(onClick = { if (webView?.canGoBack() == true) webView?.goBack() }) { Text("Back") }
+                                TextButton(onClick = { if (webView?.canGoForward() == true) webView?.goForward() }) { Text("Next") }
                                 TextButton(onClick = { webView?.reload() }) { Text("Reload") }
                                 TextButton(onClick = { showDownloadChoices = found.isNotEmpty() }) {
                                     Text("Downloads (${found.size})")
@@ -357,6 +362,9 @@ private fun RoohuXScreen(activity: MainActivity) {
                                 TextButton(onClick = { desktopMode = !desktopMode; webView?.settings?.userAgentString = if (desktopMode) "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" else null; webView?.reload() }) { Text(if (desktopMode) "Mobile" else "Desktop") }
                                 TextButton(onClick = { webView?.url?.let { save(it) } }) { Text("Save link") }
                             }
+                        }
+                        if (browserLoading) {
+                            LinearProgressIndicator(progress = { browserProgress / 100f }, modifier = Modifier.fillMaxWidth())
                         }
                         if (found.isNotEmpty()) {
                             Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
@@ -372,6 +380,7 @@ private fun RoohuXScreen(activity: MainActivity) {
                                 onCreated = { webView = it },
                                 onPage = { browserInput = it; browserPage = it },
                                 onMedia = { url, label -> addDetected(url, label) },
+                                onProgress = { progress -> browserProgress = progress; browserLoading = progress < 100 },
                                 modifier = Modifier.fillMaxWidth().weight(1f)
                             )
                         }
@@ -416,6 +425,7 @@ private fun BrowserView(
     onCreated: (WebView) -> Unit,
     onPage: (String) -> Unit,
     onMedia: (String, String) -> Unit,
+    onProgress: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
     AndroidView(factory = { context ->
@@ -429,10 +439,11 @@ private fun BrowserView(
             settings.builtInZoomControls = true
             settings.displayZoomControls = false
             setDownloadListener { url, userAgent, contentDisposition, mimeType, contentLength ->
-                if (url.startsWith("https://") || url.startsWith("http://")) onMedia(url, "Website download")
+                if (url.startsWith("https://") || url.startsWith("http://")) onMedia(url, URLUtil.guessFileName(url, contentDisposition, mimeType))
             }
             CookieManager.getInstance().setAcceptCookie(true)
             webChromeClient = object : WebChromeClient() {
+                override fun onProgressChanged(view: WebView?, newProgress: Int) { onProgress(newProgress) }
                 override fun onConsoleMessage(message: ConsoleMessage?): Boolean {
                     val raw = message?.message() ?: return false
                     if (raw.startsWith("ROOHUX_MEDIA:")) {
@@ -450,7 +461,14 @@ private fun BrowserView(
                 override fun onHideCustomView() { activity.closeVideoFullscreen() }
             }
             webViewClient = object : WebViewClient() {
-                override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean = false
+                override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                    val uri = request?.url ?: return false
+                    if (uri.scheme == "http" || uri.scheme == "https") return false
+                    return try {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                        true
+                    } catch (_: Exception) { true }
+                }
                 override fun onPageFinished(view: WebView?, url: String?) {
                     if (url != null) onPage(url)
                     view?.evaluateJavascript("""
