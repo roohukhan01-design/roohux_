@@ -12,6 +12,9 @@ import android.webkit.CookieManager
 import android.webkit.ConsoleMessage
 import android.webkit.WebChromeClient
 import android.webkit.URLUtil
+import android.webkit.WebSettings
+import android.webkit.WebResourceError
+import android.graphics.Bitmap
 import android.content.Intent
 import android.content.ActivityNotFoundException
 import android.webkit.WebResourceRequest
@@ -162,6 +165,9 @@ private fun RoohuXScreen(activity: MainActivity) {
     var browserVisible by remember { mutableStateOf(true) }
     var browserLoading by remember { mutableStateOf(false) }
     var browserProgress by remember { mutableIntStateOf(0) }
+    var browserError by remember { mutableStateOf("") }
+    var browserTabIndex by remember { mutableIntStateOf(0) }
+    val browserTabs = remember { mutableStateListOf("https://www.google.com") }
     val bookmarks = remember { mutableStateListOf<String>().apply { try { val a = JSONArray(prefs.getString("bookmarks", "[]")); for (i in 0 until a.length()) add(a.getString(i)) } catch (_: Exception) {} } }
     fun bookmark(url: String) { if (!bookmarks.contains(url)) bookmarks.add(0, url); try { prefs.edit().putString("bookmarks", JSONArray(bookmarks.toList()).toString()).apply() } catch (_: Exception) {} }
     val player = remember {
@@ -182,7 +188,7 @@ private fun RoohuXScreen(activity: MainActivity) {
 
     fun addDetected(url: String, label: String) {
         val valid = normalizedUrl(url) ?: return
-        if (!mediaType(valid) || found.any { it.url == valid } || found.size >= 24) return
+        if ((!mediaType(valid) && !label.startsWith("Website download")) || found.any { it.url == valid } || found.size >= 24) return
         found.add(FoundMedia(valid, label.ifBlank { "Media source" }))
         // Do not interrupt playback. A download chip appears in the browser instead.
     }
@@ -192,6 +198,8 @@ private fun RoohuXScreen(activity: MainActivity) {
         found.clear()
         promptSeenForPage = false
         browserPage = url
+        browserError = ""
+        if (browserTabIndex in browserTabs.indices) browserTabs[browserTabIndex] = url
         tab = 2
     }
     fun play(url: String) {
@@ -349,6 +357,15 @@ private fun RoohuXScreen(activity: MainActivity) {
                             }
                         }
                         if (!browserExpanded) {
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                                browserTabs.forEachIndexed { index, url ->
+                                    TextButton(onClick = { browserTabIndex = index; browserTarget = url; browserInput = url; found.clear() }, modifier = Modifier.weight(1f)) {
+                                        Text(if (index == browserTabIndex) "● ${index + 1}" else "○ ${index + 1}")
+                                    }
+                                }
+                                TextButton(onClick = { if (browserTabs.size < 4) { browserTabs.add("https://www.google.com"); browserTabIndex = browserTabs.lastIndex; browserTarget = browserTabs.last(); browserInput = browserTarget; found.clear() } }) { Text("+ Tab") }
+                                if (browserTabs.size > 1) TextButton(onClick = { browserTabs.removeAt(browserTabIndex); browserTabIndex = 0; browserTarget = browserTabs[0]; browserInput = browserTarget; found.clear() }) { Text("×") }
+                            }
                             Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                                 TextButton(onClick = { if (webView?.canGoBack() == true) webView?.goBack() }) { Text("Back") }
                                 TextButton(onClick = { if (webView?.canGoForward() == true) webView?.goForward() }) { Text("Next") }
@@ -362,6 +379,10 @@ private fun RoohuXScreen(activity: MainActivity) {
                                 TextButton(onClick = { desktopMode = !desktopMode; webView?.settings?.userAgentString = if (desktopMode) "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" else null; webView?.reload() }) { Text(if (desktopMode) "Mobile" else "Desktop") }
                                 TextButton(onClick = { webView?.url?.let { save(it) } }) { Text("Save link") }
                             }
+                        }
+                        if (browserError.isNotBlank()) {
+                            Text(browserError, color = Color(0xFFFFB6B6), style = MaterialTheme.typography.bodySmall)
+                            TextButton(onClick = { webView?.reload() }) { Text("Try again") }
                         }
                         if (browserLoading) {
                             LinearProgressIndicator(progress = { browserProgress / 100f }, modifier = Modifier.fillMaxWidth())
@@ -378,9 +399,10 @@ private fun RoohuXScreen(activity: MainActivity) {
                                 activity = activity,
                                 startUrl = browserTarget,
                                 onCreated = { webView = it },
-                                onPage = { browserInput = it; browserPage = it },
+                                onPage = { browserInput = it; browserPage = it; browserError = ""; if (browserTabIndex in browserTabs.indices) browserTabs[browserTabIndex] = it },
                                 onMedia = { url, label -> addDetected(url, label) },
                                 onProgress = { progress -> browserProgress = progress; browserLoading = progress < 100 },
+                                onError = { error -> browserError = error },
                                 modifier = Modifier.fillMaxWidth().weight(1f)
                             )
                         }
@@ -426,12 +448,18 @@ private fun BrowserView(
     onPage: (String) -> Unit,
     onMedia: (String, String) -> Unit,
     onProgress: (Int) -> Unit,
+    onError: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     AndroidView(factory = { context ->
         WebView(context).apply {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
+            settings.javaScriptCanOpenWindowsAutomatically = false
+            settings.cacheMode = WebSettings.LOAD_DEFAULT
+            settings.allowFileAccess = false
+            settings.allowContentAccess = true
+            settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
             settings.mediaPlaybackRequiresUserGesture = true
             settings.setSupportMultipleWindows(false)
             settings.useWideViewPort = true
@@ -442,6 +470,7 @@ private fun BrowserView(
                 if (url.startsWith("https://") || url.startsWith("http://")) onMedia(url, URLUtil.guessFileName(url, contentDisposition, mimeType))
             }
             CookieManager.getInstance().setAcceptCookie(true)
+            CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
             webChromeClient = object : WebChromeClient() {
                 override fun onProgressChanged(view: WebView?, newProgress: Int) { onProgress(newProgress) }
                 override fun onConsoleMessage(message: ConsoleMessage?): Boolean {
@@ -468,6 +497,9 @@ private fun BrowserView(
                         context.startActivity(Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                         true
                     } catch (_: Exception) { true }
+                }
+                override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
+                    if (request?.isForMainFrame == true) onError(error?.description?.toString() ?: "Page could not load")
                 }
                 override fun onPageFinished(view: WebView?, url: String?) {
                     if (url != null) onPage(url)
