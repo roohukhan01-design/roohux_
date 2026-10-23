@@ -340,7 +340,7 @@ private fun RoohuXScreen(activity: MainActivity) {
                                 activity = activity,
                                 startUrl = browserTarget,
                                 onCreated = { webView = it },
-                                onPage = { browserInput = it; browserPage = it; found.clear() },
+                                onPage = { browserInput = it; browserPage = it },
                                 onMedia = { url, label -> addDetected(url, label) },
                                 modifier = Modifier.fillMaxSize()
                             )
