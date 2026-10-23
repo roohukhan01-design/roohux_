@@ -117,9 +117,9 @@ private fun requestDownload(context: Context, url: String): String {
             .setTitle(filename)
             .setDescription("RoohuX media download")
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            .setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, filename)
+            .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "RoohuX/" + filename)
         CookieManager.getInstance().getCookie(url)?.let { request.addRequestHeader("Cookie", it) }
-        request.addRequestHeader("User-Agent", "Mozilla/5.0 (Android) RoohuX/0.2")
+        request.addRequestHeader("User-Agent", WebSettings.getDefaultUserAgent(context))
         val id = (context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager).enqueue(request)
         DownloadHistory.add(context, id, filename, url)
         "Download started — see Downloads tab"
