@@ -1,4 +1,4 @@
-name: Build RoohuX Debug APK
+name: Build and Validate RoohuX APK
 
 on:
   push:
@@ -30,10 +30,26 @@ jobs:
       - name: Build debug APK
         run: gradle --no-daemon :app:assembleDebug --stacktrace
 
-      - name: Upload debug APK
-        if: success()
+      - name: Validate APK archive and package
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+          unzip -t "$APK" | tail -n 2
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          AAPT="$(find "$SDK_ROOT/build-tools" -name aapt -type f | sort -V | tail -n 1)"
+          APKSIGNER="$(find "$SDK_ROOT/build-tools" -name apksigner -type f | sort -V | tail -n 1)"
+          test -n "$AAPT" && test -n "$APKSIGNER"
+          "$AAPT" dump badging "$APK" | grep -E "^(package:|sdkVersion:|targetSdkVersion:)"
+          "$APKSIGNER" verify --verbose --print-certs "$APK"
+          sha256sum "$APK" | tee app/build/outputs/apk/debug/app-debug.apk.sha256
+
+      - name: Upload verified APK
         uses: actions/upload-artifact@v4
         with:
-          name: RoohuX-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: RoohuX-verified-debug-apk
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/debug/app-debug.apk.sha256
           if-no-files-found: error
