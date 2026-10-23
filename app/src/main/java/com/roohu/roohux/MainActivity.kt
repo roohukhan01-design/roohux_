@@ -176,6 +176,7 @@ private fun RoohuXScreen(activity: MainActivity) {
     var browserProgress by remember { mutableIntStateOf(0) }
     var motionEnabled by remember { mutableStateOf(prefs.getBoolean("motion", true)) }
     var browserError by remember { mutableStateOf("") }
+    var downloadFeedback by remember { mutableStateOf("") }
     var browserTabIndex by remember { mutableIntStateOf(0) }
     val browserTabs = remember { mutableStateListOf("https://www.google.com") }
     val bookmarks = remember { mutableStateListOf<String>().apply { try { val a = JSONArray(prefs.getString("bookmarks", "[]")); for (i in 0 until a.length()) add(a.getString(i)) } catch (_: Exception) {} } }
@@ -234,6 +235,11 @@ private fun RoohuXScreen(activity: MainActivity) {
         }
     }
 
+    if (downloadFeedback.isNotBlank()) {
+        AlertDialog(onDismissRequest = { downloadFeedback = "" }, title = { Text("Download status") },
+            text = { Text(downloadFeedback) }, confirmButton = { TextButton(onClick = { downloadFeedback = ""; tab = 4 }) { Text("View downloads") } },
+            dismissButton = { TextButton(onClick = { downloadFeedback = "" }) { Text("Close") } })
+    }
     if (showDownloadChoices && found.isNotEmpty()) {
         AlertDialog(
             onDismissRequest = { showDownloadChoices = false },
@@ -248,7 +254,7 @@ private fun RoohuXScreen(activity: MainActivity) {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                             Text(label.take(46), modifier = Modifier.weight(1f), maxLines = 2)
                             TextButton(onClick = { showDownloadChoices = false; play(item.url) }) { Text("Play") }
-                            if (!streamOnly) TextButton(onClick = { status = requestDownload(context, item.url); showDownloadChoices = false }) { Text("↓ Save") }
+                            if (!streamOnly) TextButton(onClick = { downloadFeedback = requestDownload(context, item.url); showDownloadChoices = false }) { Text("↓ Save") }
                             else Text("Stream", style = MaterialTheme.typography.labelSmall, color = cyan)
                         }
                     }
@@ -360,7 +366,7 @@ private fun RoohuXScreen(activity: MainActivity) {
                             Row {
                                 Button(onClick = { save(url); status = "Saved" }) { Text("Save") }
                                 Spacer(Modifier.width(8.dp))
-                                OutlinedButton(onClick = { status = requestDownload(context, url) }) {
+                                OutlinedButton(onClick = { downloadFeedback = requestDownload(context, url) }) {
                                     Text("Download file")
                                 }
                             }
