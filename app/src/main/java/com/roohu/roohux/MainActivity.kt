@@ -19,6 +19,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -151,6 +152,7 @@ private fun RoohuXScreen(activity: MainActivity) {
     var showDownloadChoices by remember { mutableStateOf(false) }
     var autoPrompt by remember { mutableStateOf(true) }
     var promptSeenForPage by remember { mutableStateOf(false) }
+    var browserExpanded by remember { mutableStateOf(true) }
     val player = remember {
         ExoPlayer.Builder(context).build()
     }
@@ -171,7 +173,7 @@ private fun RoohuXScreen(activity: MainActivity) {
         val valid = normalizedUrl(url) ?: return
         if (!mediaType(valid) || found.any { it.url == valid } || found.size >= 24) return
         found.add(FoundMedia(valid, label.ifBlank { "Media source" }))
-        if (autoPrompt && !promptSeenForPage) {
+        if (autoPrompt && !promptSeenForPage && tab == 2) {
             promptSeenForPage = true
             showDownloadChoices = true
         }
@@ -233,6 +235,7 @@ private fun RoohuXScreen(activity: MainActivity) {
     MaterialTheme(colorScheme = darkColorScheme(primary = violet, secondary = cyan, background = ink,
         surface = panel, onSurface = Color.White, onBackground = Color.White)) {
         Scaffold(containerColor = ink, bottomBar = {
+            if (tab != 2 || !browserExpanded) {
             NavigationBar(containerColor = panel) {
                 listOf("Explore", "Player", "Browser", "Saved").forEachIndexed { index, name ->
                     NavigationBarItem(
@@ -243,14 +246,17 @@ private fun RoohuXScreen(activity: MainActivity) {
                     )
                 }
             }
+            }
         }) { padding ->
             Column(Modifier.fillMaxSize().background(ink).padding(padding).padding(horizontal = 16.dp)) {
+                if (tab != 2 || !browserExpanded) {
                 Spacer(Modifier.height(12.dp))
                 Text("ROOHUX", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Black,
                     color = violet)
                 Text("Your media. Your universe.", color = Color(0xFFABB4C8))
                 Spacer(Modifier.height(14.dp))
-                if (status.isNotBlank()) {
+                }
+                if (status.isNotBlank() && (tab != 2 || !browserExpanded)) {
                     Text(status, color = cyan, style = MaterialTheme.typography.bodySmall)
                     Spacer(Modifier.height(8.dp))
                 }
@@ -319,61 +325,42 @@ private fun RoohuXScreen(activity: MainActivity) {
                         }
                     }
                     2 -> {
-                        Text("Web player", style = MaterialTheme.typography.titleLarge)
-                        OutlinedTextField(browserInput, { browserInput = it }, singleLine = true,
-                            modifier = Modifier.fillMaxWidth(), label = { Text("Website or share link") })
-                        Spacer(Modifier.height(6.dp))
-                        Row {
-                            Button(onClick = {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                            OutlinedTextField(
+                                browserInput, { browserInput = it },
+                                singleLine = true,
+                                modifier = Modifier.weight(1f),
+                                label = { Text("Website / video link") }
+                            )
+                            TextButton(onClick = {
                                 normalizedUrl(browserInput)?.let { openBrowser(it) }
                                     ?: run { status = "Invalid website" }
                             }) { Text("Go") }
-                            Spacer(Modifier.width(8.dp))
-                            OutlinedButton(onClick = { webView?.reload() }) { Text("Reload") }
-                            Spacer(Modifier.width(8.dp))
-                            OutlinedButton(onClick = {
-                                webView?.let { view ->
-                                    view.evaluateJavascript(
-                                        "(function(){return JSON.stringify(Array.from(document.querySelectorAll('video,video source,a[download]')).map(e=>({u:e.currentSrc||e.src||e.href||'',q:e.getAttribute('label')||e.getAttribute('res')||''})).filter(x=>x.u))})()"
-                                    ) { raw ->
-                                        try {
-                                            val unquoted = JSONArray("[$raw]").getString(0)
-                                            val array = JSONArray(unquoted)
-                                            for (i in 0 until array.length()) {
-                                                val entry = array.getJSONObject(i)
-                                                addDetected(entry.optString("u"), entry.optString("q"))
-                                            }
-                                        } catch (_: Exception) {}
-                                    }
-                                }
-                            }) { Text("Find media") }
-                        }
-                        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                            Text("Auto download popup", style = MaterialTheme.typography.bodySmall,
-                                modifier = Modifier.weight(1f))
-                            Switch(checked = autoPrompt, onCheckedChange = { autoPrompt = it })
-                            if (found.isNotEmpty()) TextButton(onClick = { showDownloadChoices = true }) { Text("Downloads") }
-                        }
-                        if (found.isNotEmpty()) {
-                            Spacer(Modifier.height(8.dp))
-                            Text("Detected downloadable media (${found.size})", color = cyan,
-                                style = MaterialTheme.typography.labelLarge)
-                            Column(Modifier.heightIn(max = 170.dp)) {
-                                found.take(6).forEach { item ->
-                                    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Text(item.label.ifBlank { Uri.parse(item.url).lastPathSegment ?: "Media" },
-                                            modifier = Modifier.weight(1f), maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall)
-                                        Text(" Play ", color = violet, modifier = Modifier.clickable { play(item.url) })
-                                        Text(" ↓ ", color = cyan, modifier = Modifier.clickable {
-                                            status = requestDownload(context, item.url)
-                                        })
-                                    }
-                                }
+                            TextButton(onClick = { browserExpanded = !browserExpanded }) {
+                                Text(if (browserExpanded) "Tools" else "Full")
                             }
                         }
-                        Spacer(Modifier.height(6.dp))
+                        if (!browserExpanded) {
+                            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                                TextButton(onClick = { webView?.goBack() }) { Text("Back") }
+                                TextButton(onClick = { webView?.goForward() }) { Text("Next") }
+                                TextButton(onClick = { webView?.reload() }) { Text("Reload") }
+                                TextButton(onClick = { showDownloadChoices = found.isNotEmpty() }) {
+                                    Text("Downloads (${found.size})")
+                                }
+                            }
+                            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                                Text("Auto video suggestions", modifier = Modifier.weight(1f))
+                                Switch(checked = autoPrompt, onCheckedChange = { autoPrompt = it })
+                            }
+                        }
+                        if (found.isNotEmpty()) {
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                                Text("${found.size} media source(s) detected", color = cyan,
+                                    modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                                TextButton(onClick = { showDownloadChoices = true }) { Text("Download options ↓") }
+                            }
+                        }
                         key(browserTarget) {
                             BrowserView(
                                 activity = activity,
@@ -381,7 +368,7 @@ private fun RoohuXScreen(activity: MainActivity) {
                                 onCreated = { webView = it },
                                 onPage = { browserInput = it; browserPage = it },
                                 onMedia = { url, label -> addDetected(url, label) },
-                                modifier = Modifier.fillMaxSize()
+                                modifier = Modifier.fillMaxWidth().weight(1f)
                             )
                         }
                     }
@@ -426,6 +413,10 @@ private fun BrowserView(
             settings.domStorageEnabled = true
             settings.mediaPlaybackRequiresUserGesture = true
             settings.setSupportMultipleWindows(false)
+            settings.useWideViewPort = true
+            settings.loadWithOverviewMode = true
+            settings.builtInZoomControls = true
+            settings.displayZoomControls = false
             CookieManager.getInstance().setAcceptCookie(true)
             webChromeClient = object : WebChromeClient() {
                 override fun onConsoleMessage(message: ConsoleMessage?): Boolean {
