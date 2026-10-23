@@ -113,7 +113,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private fun requestDownload(context: Context, url: String): String {
+private fun requestDownload(context: Context, url: String, pageUrl: String? = null, userAgent: String? = null): String {
     val uri = try { Uri.parse(url) } catch (_: Exception) { return "Invalid download URL" }
     if (uri.scheme != "https" && uri.scheme != "http") return "Only HTTP(S) downloads are supported"
     if (uri.host.isNullOrBlank()) return "Invalid download address"
@@ -121,14 +121,16 @@ private fun requestDownload(context: Context, url: String): String {
         return "This is a segmented stream, not a single downloadable file"
     return try {
         val original = uri.lastPathSegment?.substringBefore('?')?.takeIf { it.contains('.') } ?: "roohux-media.mp4"
-        val filename = original.replace(Regex("[^a-zA-Z0-9._-]"), "_").take(90)
+        val safeName = original.replace(Regex("[^a-zA-Z0-9._-]"), "_").take(70)
+        val filename = "${System.currentTimeMillis()}_$safeName"
         val request = DownloadManager.Request(uri)
             .setTitle(filename)
             .setDescription("RoohuX media download")
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
             .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "RoohuX/" + filename)
         CookieManager.getInstance().getCookie(url)?.let { request.addRequestHeader("Cookie", it) }
-        request.addRequestHeader("User-Agent", WebSettings.getDefaultUserAgent(context))
+        request.addRequestHeader("User-Agent", userAgent ?: WebSettings.getDefaultUserAgent(context))
+        if (!pageUrl.isNullOrBlank() && pageUrl.startsWith("https://")) request.addRequestHeader("Referer", pageUrl)
         val id = (context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager).enqueue(request)
         DownloadHistory.add(context, id, filename, url)
         "Download started — see Downloads tab"
@@ -254,7 +256,7 @@ private fun RoohuXScreen(activity: MainActivity) {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                             Text(label.take(46), modifier = Modifier.weight(1f), maxLines = 2)
                             TextButton(onClick = { showDownloadChoices = false; play(item.url) }) { Text("Play") }
-                            if (!streamOnly) TextButton(onClick = { downloadFeedback = requestDownload(context, item.url); showDownloadChoices = false }) { Text("↓ Save") }
+                            if (!streamOnly) TextButton(onClick = { downloadFeedback = requestDownload(context, item.url, browserPage, webView?.settings?.userAgentString); showDownloadChoices = false }) { Text("↓ Save") }
                             else Text("Stream", style = MaterialTheme.typography.labelSmall, color = cyan)
                         }
                     }
@@ -366,7 +368,7 @@ private fun RoohuXScreen(activity: MainActivity) {
                             Row {
                                 Button(onClick = { save(url); status = "Saved" }) { Text("Save") }
                                 Spacer(Modifier.width(8.dp))
-                                OutlinedButton(onClick = { downloadFeedback = requestDownload(context, url) }) {
+                                OutlinedButton(onClick = { downloadFeedback = requestDownload(context, url, browserPage, webView?.settings?.userAgentString) }) {
                                     Text("Download file")
                                 }
                             }
@@ -435,6 +437,7 @@ private fun RoohuXScreen(activity: MainActivity) {
                                 onMedia = { url, label -> addDetected(url, label) },
                                 onProgress = { progress -> browserProgress = progress; browserLoading = progress < 100 },
                                 onError = { error -> browserError = error },
+                                onDownload = { url -> downloadFeedback = requestDownload(context, url, browserPage, webView?.settings?.userAgentString) },
                                 modifier = Modifier.fillMaxWidth().weight(1f)
                             )
                         }
@@ -482,6 +485,7 @@ private fun BrowserView(
     onMedia: (String, String) -> Unit,
     onProgress: (Int) -> Unit,
     onError: (String) -> Unit,
+    onDownload: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     AndroidView(factory = { context ->
