@@ -10,8 +10,8 @@ android {
         applicationId = "com.roohu.roohux"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1-dev"
+        versionCode = 5
+        versionName = "0.5.0-beta"
     }
     buildFeatures { compose = true }
     compileOptions {
