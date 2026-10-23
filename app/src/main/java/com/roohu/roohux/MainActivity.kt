@@ -230,15 +230,16 @@ private fun RoohuXScreen(activity: MainActivity) {
             title = { Text("Video detected") },
             text = {
                 Column {
-                    Text("Choose an available source. Quality is shown only when the website provides it.")
+                    Text("Available files and streams. Resolution depends on the website.")
                     Spacer(Modifier.height(10.dp))
                     found.take(10).forEach { item ->
+                        val streamOnly = item.url.substringBefore("?").endsWith(".m3u8", true) || item.url.substringBefore("?").endsWith(".mpd", true)
                         val label = item.label.ifBlank { Uri.parse(item.url).lastPathSegment ?: "Video file" }
-                        TextButton(onClick = {
-                            status = requestDownload(context, item.url)
-                            showDownloadChoices = false
-                        }, modifier = Modifier.fillMaxWidth()) {
-                            Text("↓  " + label.take(70), maxLines = 2)
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                            Text(label.take(46), modifier = Modifier.weight(1f), maxLines = 2)
+                            TextButton(onClick = { showDownloadChoices = false; play(item.url) }) { Text("Play") }
+                            if (!streamOnly) TextButton(onClick = { status = requestDownload(context, item.url); showDownloadChoices = false }) { Text("↓ Save") }
+                            else Text("Stream", style = MaterialTheme.typography.labelSmall, color = cyan)
                         }
                     }
                 }
@@ -326,6 +327,11 @@ private fun RoohuXScreen(activity: MainActivity) {
                             useController = true
                         } }, update = { it.player = player },
                             modifier = Modifier.fillMaxWidth().height(260.dp))
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                            listOf(0.75f, 1f, 1.25f, 1.5f, 2f).forEach { speed ->
+                                TextButton(onClick = { player.setPlaybackSpeed(speed) }) { Text("${speed}×") }
+                            }
+                        }
                         if (playerError.isNotBlank()) Text(playerError, color = Color(0xFFFFB6B6))
                         Text(current ?: "Open a direct media file to begin",
                             maxLines = 3, overflow = TextOverflow.Ellipsis, color = Color.LightGray)
